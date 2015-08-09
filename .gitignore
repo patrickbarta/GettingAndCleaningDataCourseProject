@@ -1,0 +1,15 @@
+# Emacs backup files
+*.~*~
+\#*\#
+# Emacs backups of hidden files, like ".gitignore.~3~"
+.*.~*~
+.\#*
+# R stuff
+.RData
+.Rhistory
+# Files for this project
+getdata-projectfiles-UCI HAR Dataset.zip
+cache/*
+UCI HAR Dataset/*
+
+
