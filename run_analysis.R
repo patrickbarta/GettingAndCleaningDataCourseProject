@@ -13,8 +13,8 @@
 # 2. Extracts only the measurements on the mean and standard deviation for each measurement. 
 # 3. Uses descriptive activity names to name the activities in the data set
 # 4. Appropriately labels the data set with descriptive variable names. 
-# 5. From the data set in step 4, creates a second, independent tidy data set with the average of each variable
-# for each activity and each subject.
+# 5. From the data set in step 4, creates a second, independent tidy data set with the average
+# of each variable for each activity and each subject.
 
 
 ###############################################################################################
@@ -281,16 +281,16 @@ submissionFile = file.path(".","courseraSubmission.txt")
 # Used for debugging
 # with the information mapping raw data file columns and names to tidy dataset variables
 ###############################################################################################
-write.table(main(FALSE), file=submissionFile, quote=FALSE, row.names=FALSE)
-cat("Finished writing out ", submissionFile, ".\n")
-cat("Completed preparation of tidy data sets.\n")
+#write.table(main(FALSE), file=submissionFile, quote=FALSE, row.names=FALSE)
+#cat("Finished writing out ", submissionFile, ".\n")
+#cat("Completed preparation of tidy data sets.\n")
 
 ###############################################################################################
 # Used for production
 # with the information mapping raw data file columns and names to tidy dataset variables
 ###############################################################################################
-#write.table(main(), file=file.path(".","courseraSubmission.txt"), quote=FALSE, row.names=FALSE)
-#cat("Finished writing out ", submissionFile, ".\n")
-#cat("Completed preparation of tidy data sets.\n")
+write.table(main(), file=file.path(".","courseraSubmission.txt"), quote=FALSE, row.names=FALSE)
+cat("Finished writing out ", submissionFile, ".\n")
+cat("Completed preparation of tidy data sets.\n")
 
 
