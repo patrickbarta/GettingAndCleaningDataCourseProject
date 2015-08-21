@@ -33,9 +33,9 @@ was downloaded on Aug 21, 2015.
 Details about the processing can be found in the comments in run_analysis.R
 
 The script is fairly straightforward, but I favor a cached approach for development,
-so the script basically completes one of the requirements and writes out the intermediate
+so the script basically completes each the requirements one at a time and writes out the intermediate
 result to a cache file. This makes development faster. This feature can be switched on or
-off depending on whether cache = TRUE or FALSE in lines 96 and 97.
+off depending on whether cache = TRUE or FALSE in lines 97 and 98.
 
 After run_analysis.R executes, the following directory structure is created:
 
@@ -109,7 +109,7 @@ the modified original variable name consisted of the original name with the subs
 removed--it was basically moved to the from middle of the string to the front--while "Acc" and "Mag" were
 expanded to "Acceleration" and "Magnitude"
 
-I chose to present the tidy dataset two information as a long, rather than wide, table, simple to make it
+I chose to present the tidy dataset two information as a long, rather than wide, table, simply to make it
 easier to read on GitHub.
 
 ### Units

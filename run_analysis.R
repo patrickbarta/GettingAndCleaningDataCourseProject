@@ -3,7 +3,7 @@
 # Aug 18, 2015
 #
 # I prefer a pipelined and cached workflow. Basically, this script caches intermediate
-# results in a cache directgory.
+# results in a cache directory.
 # 
 # To be sure, this reading/writing is not so efficient, but it makes it faster to develop
 # because the intermediate results are cached, and it makes it easier to check the
@@ -17,9 +17,11 @@
 # 5. From the data set in step 4, creates a second, independent tidy data set with the average
 # of each variable for each activity and each subject.
 
+##########################################################################################
 #
-# Begin utility functions
+# Begin utility functions. Main script below.
 #
+##########################################################################################
 
 #
 # create directories if not present
@@ -83,20 +85,21 @@ require.packages <- function (packages) {
     }
 }
 
-#
-# End utility functions
-#
 
-#
+##########################################################################################
+# End utility functions
+##########################################################################################
+
+##########################################################################################
 # Begin main script
-#
+##########################################################################################
 
 # Set this to TRUE if you want to run program using cached files (good for development)
 # Set this to FALSE if you want to run program without using old cached files (production)
 #cache <- TRUE
 cache <- FALSE
 
-# If not using cached files, clean up old cached data before beginning
+# If not using cached files, clean up any old cached data before beginning
 if (!cache) {
     deleteCachedData()
 }
