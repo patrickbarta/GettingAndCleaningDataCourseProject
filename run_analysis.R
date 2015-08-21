@@ -1,13 +1,14 @@
-#
 # This is an R script for the final project in the Coursera "Getting and Cleaning Data" course
 # Author: Patrick Barta, patrickbarta (at) patrickbarta.com
-# Aug 13, 2015
+# Aug 18, 2015
 #
-# For modularity this script defines several functions (including one called main()) and then just calls
-# main() at the end.
+# I prefer a pipelined and cached workflow. Basically, this script caches intermediate
+# results in a cache directgory.
 # 
-# In this script, functions are defined in alphabetical order by name for easy access
-# 
+# To be sure, this reading/writing is not so efficient, but it makes it faster to develop
+# because the intermediate results are cached, and it makes it easier to check the
+# correctness of each step in the pipeline.
+#
 # The requirements are that it: 
 # 1. Merges the training and the test sets to create one data set.
 # 2. Extracts only the measurements on the mean and standard deviation for each measurement. 
@@ -16,281 +17,278 @@
 # 5. From the data set in step 4, creates a second, independent tidy data set with the average
 # of each variable for each activity and each subject.
 
+#
+# Begin utility functions
+#
 
-###############################################################################################
-# createTidyDataFrameOne: massages rawDataFrame into tidyDataFrameOne, 
-# This accomplishes requirement 2, 3, and 4
-###############################################################################################
-createTidyDataFrameOne <- function (rawDataFrame, cacheDirectory, crosswalk) {
-    # file path
-    tidyDataFrameOneFile <- file.path(cacheDirectory,"tidyDataFrameOne.rda")
-    
-    # If tidyDataFrameFile exists already, just read it in.
-    if (file.exists(tidyDataFrameOneFile)) {
-        # Cached file exists. No computation necessary.
-        cat("Loading cached tidy data frame one from ", tidyDataFrameOneFile, ".\n")
-        load(tidyDataFrameOneFile)
+#
+# create directories if not present
+#
+createDirectoriesIfNeeded <- function(dirnames) {
+    for (dirname in dirnames) {		  
+        dir <- file.path(".",dirname)
+        if (!file.exists(dir)) {
+           dir.create(dir)
+	}
+    }
+}
+
+#
+# delete cached data, if present
+#
+deleteCachedData <- function() {
+    for (dir in c("raw", "cache", "tidy")) {
+        if (file.exists(dir)) {
+            unlink(dir,recursive=TRUE)
+        }
+    }
+
+}
+
+                                      #
+# get cached data if available, return TRUE if it is, FALSE otherwise
+#
+getCachedData <- function(cachedDataFilename) {
+    fullPath <- file.path(".","cache",cachedDataFilename)
+    if (file.exists(fullPath)) {
+        load(fullPath)
+        return(TRUE)
     } else {
-        # Cached file doesn't exist. Stack all the raw data into rawDataFrame
-        cat("Creating tidy data frame one from raw data frame.\n")
+        return(FALSE)
+    }
+}
 
-        # Requirement 2 - Extract features' mean and standard deviation
-        # Subsetting is done by getting column indexes from crosswalk.
-        # The "+ 3" comes becomes because I added 3 columns--Subject, Activity, Set--to the left
-        # side of the stacked features raw data frame
-        index <- c(1:3, crosswalk$rawDatasetColumnIndex + 3)
-        tidyDataFrameOne <- rawDataFrame[ , index]
+#
+# get tidy data if available, return TRUE if it is, FALSE otherwise
+#
+getTidyData <- function(tidyDataFilename) {
+    fullPath <- file.path(".","tidy",tidyDataFilename)
+    if (file.exists(fullPath)) {
+        load(fullPath)
+        return(TRUE)
+    } else {
+        return(FALSE)
+    }
+}
+
+#
+# load packages, installing if necessary
+#
+require.packages <- function (packages) {
+    for (package in packages) {
+        if (!require(package, character.only = TRUE)) {
+            install.packages(package)
+	    require(package)
+	}
+    }
+}
+
+#
+# End utility functions
+#
+
+#
+# Begin main script
+#
+
+# Set this to TRUE if you want to run program using cached files (good for development)
+# Set this to FALSE if you want to run program without using old cached files (production)
+#cache <- TRUE
+cache <- FALSE
+
+# If not using cached files, clean up old cached data before beginning
+if (!cache) {
+    deleteCachedData()
+}
+
+#
+# Check to make sure that we have setwd() to the directory with this script in it.
+#
+if (!file.exists("run_analysis.R")) { # R is not executing in the proper directory.
+   stop("You should setwd() in R to the directory where this script is before running it.")
+}
+
+#
+# load libraries
+#
+require.packages(c("dplyr","reshape2"))
+
+
+#
+# create directories if not present
+#
+createDirectoriesIfNeeded(c("raw","cache","tidy"))
+
+#
+# Requirement 1
+#
+
+# Constants used for requirement 1
+# where the raw data comes from
+rawDataURL <- "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip"
+
+# various directories used in processing
+cacheDirectory <- file.path(".","cache")
+rawDataDirectory <- file.path(".","raw")
+tidyDataDirectory <- file.path(".","tidy")
+
+# name of downloaded zip file
+rawDataZipFile <- file.path(".","raw", "raw.zip")
+
+# name of unzip directory
+rawDataUnzipDirectory <- file.path(".","raw", "UCI HAR Dataset")
+
+# file holding download time
+rawDataDownloadTime <- file.path(".", "raw", "RawZipDownloadTime.txt")
+
+# labels for both the test and training sets
+activityLabelsFileName <- file.path(rawDataUnzipDirectory,"activity_labels.txt")
+featureLabelsFileName <- file.path(rawDataUnzipDirectory,"features.txt")
+
+# raw data, test set
+testSubjectTestFileName <- file.path(rawDataUnzipDirectory,"test","subject_test.txt")
+testXTestFileName <- file.path(rawDataUnzipDirectory,"test","X_test.txt")
+testyTestFileName <- file.path(rawDataUnzipDirectory,"test","y_test.txt")
+
+# raw data, training set
+trainSubjectTestFileName <- file.path(rawDataUnzipDirectory,"train","subject_train.txt")
+trainXTestFileName <- file.path(rawDataUnzipDirectory,"train","X_train.txt")
+trainyTrainFileName <- file.path(rawDataUnzipDirectory,"train","y_train.txt")
+
+# output of first requirement goes here
+rawDataFrameFileName <- file.path(cacheDirectory, "rawDataFrame.Rda")
+
+# Requirement 1
+# Check to see if cached raw data exists. If so, we're done, otherwise compute it
+if (!getCachedData("rawDataFrame.Rda")) {
+    # Save time we downloaded zip file
+    cat(date(), file=rawDataDownloadTime)
+    
+    # Download raw data zipfile
+    download.file(rawDataURL, rawDataZipFile, method="curl", quiet=TRUE)
+
+    # Unzip it
+    unzip(rawDataZipFile, exdir=rawDataDirectory)
+
+    # Stack features
+    rawFeaturesDataFrame <- rbind(read.table(testXTestFileName),read.table(trainXTestFileName))
+
+    # Name the features according to features.txt
+    features <- read.table(featureLabelsFileName, as.is = TRUE) # don't need factor conversion.
+    names(rawFeaturesDataFrame) <- features$V2  # second column has feature names, first column just an index
+
+    # Stack subjects as factors
+    subject <- rbind(read.table(testSubjectTestFileName), read.table(trainSubjectTestFileName))
+    names(subject) <- "Subject"
+    subject$Subject <- as.factor(subject$Subject)
         
-        # Requirement 3 - Add labels for activities
-        # This could be done by merging and so forth, but brute force looks easiest to me
-        replace <- c("1"="Walking", "2"="WalkingUpstairs", "3"="WalkingDownstairs", "4"="Sitting", "5"="Standing","6"="Laying") 
-        tidyDataFrameOne$Activity <- revalue(tidyDataFrameOne$Activity, replace)
-
-        # Requirement 4 - label variables with tidy names
-        newName <- c("Subject","Activity","Set",levels(crosswalk$tidyDatasetVariableName))
-        names(tidyDataFrameOne) <- newName
-
-        # cache the work
-        cat("Caching tidy data frame one in ", tidyDataFrameOneFile, ".\n")
-        save(tidyDataFrameOne, file=tidyDataFrameOneFile)
-    }
-    return(tidyDataFrameOne)
-}
-
-###############################################################################################
-# createTidyDataFrameTwo: xxx
-# This accomplishes requirement 5.
-###############################################################################################
-createTidyDataFrameTwo <- function (tidyDataFrameOne, cacheDirectory) {
-    # file path
-    tidyDataFrameTwoFile <- file.path(cacheDirectory,"tidyDataFrameTwo.rda")
-
-    # If tidyDataFrameTwoFile exists already, just read it in.
-    if (file.exists(tidyDataFrameTwoFile)) {
-        # Cached file exists. No computation necessary.
-        cat("Loading cached tidy data frame two from ", tidyDataFrameTwoFile, ".\n")
-        load(tidyDataFrameTwoFile)
-    } else {
-        # Cached file doesn't exist. 
-        cat("Creating tidy data frame two from tidy data frame one.\n")
-
-        # Get rid of Set variable
-        tidyDataFrameOne$Set <- NULL
-        
-        # Get average of all numerical columns by subject and activity
-        tidyDataFrameTwo <- tidyDataFrameOne %>% group_by(Subject,Activity) %>% summarise_each(funs(mean))
-
-        # I like the long form more than the wide form
-        tidyDataFrameTwo <- melt(tidyDataFrameTwo, id.vars=1:2)
-        
-        # cache the work
-        cat("Caching tidy data frame two in ", tidyDataFrameTwoFile, ".\n")
-        save(tidyDataFrameTwo, file=tidyDataFrameTwoFile)
-    }
-    return(tidyDataFrameTwo)
-}
-
-###############################################################################################
-# deleteCachedData: Delete all cached datafiles
-###############################################################################################
-deleteCachedData <- function (rawDataFile, rawDataDirectory, cacheDirectory) {
-    if (file.exists(rawDataFile)) {
-        file.remove(rawDataFile)
-    }
-    
-    if (dir.exists(rawDataDirectory)) {
-        unlink(rawDataDirectory,recursive=TRUE)
-    }
-
-    if (dir.exists(cacheDirectory)) {
-        unlink(cacheDirectory, recursive=TRUE)
-    }
-}
-
-###############################################################################################
-# downloadAndExtractRawDataset: Downloads rawDataFile from rawDataURL and unzips it into rawDataDirectory
-###############################################################################################
-downloadAndExtractRawDataset <- function (rawDataURL, rawDataFile, rawDataDirectory) {
-                                        #
-                                        # See if raw data zip file exists.
-                                        # If it isn't here, then download it from rawDataURL
-                                        #
-    if (!file.exists(rawDataFile)) {
-        cat("Raw data file ", rawDataFile, " not found. Downloading it ....","\n")
-        download.file(rawDataURL, destfile=rawDataFile, method="curl", quiet = TRUE) 
-        cat("Download of ", rawDataFile, " complete.","\n")
-    } else {
-        cat("Using cached raw data file ", rawDataFile, "\n")
-    }
-    
-                                        #
-                                        # See if the unzipped directory of files in raw_data.zip exists.
-                                        # If not, then unzip raw_data.zip into rawDataDirectory
-                                        #
-    if (!file.exists(rawDataDirectory)) {
-        cat("Unzipping ", rawDataFile," into ", rawDataDirectory, "directory....","\n")
-        unzip(rawDataFile, exdir=".") 
-        cat("Unzip into ", rawDataDirectory, " complete.","\n")
-    } else {
-        cat("Using local copy of raw data directory  ", rawDataDirectory, ".\n")
-    }        
-}
-
-###############################################################################################
-# main: main function that does all the work.
-# If production=TRUE, then all data processing is done de novo each time the script is run
-# If production=FALSE, then intermediate files are cached for inspection, and to speed up processing time.
-# In general, production=FALSE should only be used for development. No cached files should be modified outside
-# this script.
-###############################################################################################
-main <- function (production=TRUE) {
-    cat("Beginning preparation of tidy data sets.\n")
-                                        #
-                                        # load libraries
-                                        #
-    require.package("plyr")
-    require.package("dplyr")
-    require.package("reshape2")
-    require.package("xlsx")
-    
-                                        #
-                                        # file paths
-                                        #
-    cacheDirectory <- file.path(".","cache")
-    crosswalkFile <- file.path(".","crosswalk.xlsx")
-    rawDataDirectory <- file.path(".","UCI HAR Dataset")
-    rawDataFile <- file.path(".", "getdata-projectfiles-UCI HAR Dataset.zip")
-    rawDataURL <- "https://d396qusza40orc.cloudfront.net/getdata%2Fprojectfiles%2FUCI%20HAR%20Dataset.zip"
-
-    if (production == TRUE) {
-                                        # Delete any cached data if present
-        deleteCachedData(rawDataFile, rawDataDirectory, cacheDirectory)
-    }
-                                        # read crosswalk file
-    crosswalk <- readCrosswalkFile(crosswalkFile)
-    
-                                        # download and extract raw dataset
-    downloadAndExtractRawDataset(rawDataURL, rawDataFile, rawDataDirectory)
-    
-                                        # createRawDataFrame
-    rawDataFrame <- mergeTrainingAndTestSets(rawDataDirectory, cacheDirectory)
-
-                                        # createTidyDataFrameOne
-    tidyDataFrameOne <- createTidyDataFrameOne(rawDataFrame, cacheDirectory, crosswalk)
-    
-                                        # createRawDataFrame
-    tidyDataFrameTwo <- createTidyDataFrameTwo(tidyDataFrameOne, cacheDirectory)
-    
-    return(tidyDataFrameTwo)
-}
-
-###############################################################################################
-# mergeTrainingAndTestSets: stack all the data in rawDataDirectory into one big data frame and return it.
-# This accomplishes requirement 1.
-###############################################################################################
-mergeTrainingAndTestSets <- function (rawDataDirectory, cacheDirectory) {
-    # file paths
-    activityLabelsFile <- file.path(rawDataDirectory,"activity_labels.txt")
-    rawDataFrameFile <- file.path(cacheDirectory, "rawDataFrame.rda")
-    testSubjectTestFile <- file.path(rawDataDirectory,"test","subject_test.txt")
-    testXTestFile <- file.path(rawDataDirectory,"test","X_test.txt")
-    testyTestFile <- file.path(rawDataDirectory,"test","y_test.txt")
-    trainSubjectTestFile <- file.path(rawDataDirectory,"train","subject_train.txt")
-    trainXTestFile <- file.path(rawDataDirectory,"train","X_train.txt")
-    trainyTrainFile <- file.path(rawDataDirectory,"train","y_train.txt")
-
-    # if cache directory doesn't exist, create it
-    if (!dir.exists(cacheDirectory)) {
-        dir.create(cacheDirectory)
-    }
-
-    # If rawDataFrameFile exists already, just read it in.
-    if (file.exists(rawDataFrameFile)) {
-        # Cached file exists. No computation necessary.
-        cat("Loading cached raw data frame from ", rawDataFrameFile, ".\n")
-        load(rawDataFrameFile)
-    } else {
-        # Cached file doesn't exist. Stack all the raw data into rawDataFrame
-        cat("Creating raw data frame by stacking data files from ", rawDataDirectory, ".\n")
-
-        # Stack features
-        rawDataFrame <- rbind(read.table(testXTestFile),read.table(trainXTestFile))
-
-        # Stack subjects
-        subject <- rbind(read.table(testSubjectTestFile), read.table(trainSubjectTestFile))
-        names(subject) <- "Subject"
-        subject$Subject <- as.factor(subject$Subject)
-        
-        # Stack activities
-        testyTest <- read.table(testyTestFile)
-        trainyTrain <- read.table(trainyTrainFile)
-        activity <- rbind(testyTest, trainyTrain)
-        names(activity) <- "Activity"
-        activity$Activity <- as.factor(activity$Activity)
+    # Stack activities
+    testyTest <- read.table(testyTestFileName)
+    trainyTrain <- read.table(trainyTrainFileName)
+    activity <- rbind(testyTest, trainyTrain)
+    names(activity) <- "Activity"
+    activity$Activity <- as.factor(activity$Activity)
  
-        # Save whether training or test set
-        set <- data.frame(Set=c(rep("Test", dim(testyTest)[1]), rep("Train", dim(trainyTrain)[1])))
-        names(set) <- "Set"
-        set$Set <- as.factor(set$Set)
+    # Save whether training or test set
+    set <- data.frame(Set=c(rep("Test", dim(testyTest)[1]), rep("Train", dim(trainyTrain)[1])))
+    names(set) <- "Set"
+    set$Set <- as.factor(set$Set)
 
-        # cbind it
-        rawDataFrame <- cbind(subject, activity, set, rawDataFrame)
+    # cbind it
+    rawDataFrame <- cbind(subject, activity, set, rawFeaturesDataFrame)
 
-        # cache the work
-        cat("Caching raw data frame in ", rawDataFrameFile, ".\n")
-        save(rawDataFrame, file=rawDataFrameFile)
-    }
-    return(rawDataFrame)
+    # cache the work so far
+     save(rawDataFrame, file=rawDataFrameFileName)
 }
 
-###############################################################################################
-# readCrosswalkFile: checks to make sure that crosswalk file exists, and returns a dataframe
-# with the information mapping raw data file columns and names to tidy dataset variable names
-###############################################################################################
-readCrosswalkFile <- function (crosswalkFile) {
-                                        #
-                                        # This script requires the existence of the crosswalk.csv file,
-                                        # so check to make sure it's there.
-    if (!file.exists(crosswalkFile)) {
-        stop(cat("This script requires ", crosswalkFile, " to be in the working directory. Please add this file and re-run."))
-    } else {
-        crosswalk <- read.xlsx(crosswalkFile, sheetIndex=1)
-        cat("Crosswalk file ", crosswalkFile, " available.","\n")
-        return(crosswalk)
-    }
+# output of second requirement goes here
+meansAndSTDsFileName <- file.path(cacheDirectory, "meansAndSTDs.Rda")
+
+# Requirement 2
+# Check to see if cached raw data exists. If so, we're done, otherwise compute it
+if (!getCachedData("meansAndSTDs.Rda")) {
+   # extract those columns that have "Subject", "Activity", "Set" or "-mean()" or "-std()" as part of their names.
+   meansAndSTDs <- rawDataFrame[ ,grepl("(-mean\\(\\))|(-std\\(\\))|Subject|Activity|Set", names(rawDataFrame))]
+
+   # cache the work so far
+   save(meansAndSTDs, file=meansAndSTDsFileName)
 }
 
-###############################################################################################
-# require.package: load package, installing if necessary
-###############################################################################################
-require.package <- function (package) {
-    if (!require(package, character.only = TRUE)) {
-        install.packages(package)
-        require(package)
-    }
+# where the activity labels come from
+activityLabelsFileName <- file.path(rawDataUnzipDirectory,"activity_labels.txt")
+
+# output of third requirement goes here
+activitiesFileName <- file.path(cacheDirectory, "activities.Rda")
+
+# Requirement 3
+# Check to see if cached raw data exists. If so, we're done, otherwise compute it
+if (!getCachedData("activities.Rda")) {
+   activityLabels <- read.table(activityLabelsFileName, as.is=TRUE)
+   activities <- meansAndSTDs
+   levels(activities$Activity) <- activityLabels$V2  # second variable is name, first is index  
+
+   # cache the work so far
+   save(activities, file=activitiesFileName)
 }
 
-###############################################################################################
-# This is where the script actually starts running
-###############################################################################################
+# output of fourth requirement goes here
+tidyDatasetOneFileName <- file.path(tidyDataDirectory, "tidyDatasetOne.Rda")
 
-# courseraSubmission.txt is what gets submitted
-submissionFile = file.path(".","courseraSubmission.txt")
+# Requirement 4
+# Check to see if cached raw data exists. If so, we're done, otherwise compute it
+if (!getTidyData("tidyDatasetOne.Rda")) {
+   # Start by getting the variable names, lower case them, and then do some substitutions
+   newVariables <- names(activities)
 
-###############################################################################################
-# Used for debugging
-# with the information mapping raw data file columns and names to tidy dataset variables
-###############################################################################################
-#write.table(main(FALSE), file=submissionFile, quote=FALSE, row.names=FALSE)
-#cat("Finished writing out ", submissionFile, ".\n")
-#cat("Completed preparation of tidy data sets.\n")
+   # Change ^f to frequency, ^t to time
+   newVariables <- sub("^t", "Time", newVariables)
+   newVariables <- sub("^f", "Frequency", newVariables)
 
-###############################################################################################
-# Used for production
-# with the information mapping raw data file columns and names to tidy dataset variables
-###############################################################################################
-write.table(main(), file=file.path(".","courseraSubmission.txt"), quote=FALSE, row.names=FALSE)
-cat("Finished writing out ", submissionFile, ".\n")
-cat("Completed preparation of tidy data sets.\n")
+   # Change Acc to Acceleration, Mag to Magnitude
+   newVariables <- sub("Acc", "Acceleration", newVariables)
+   newVariables <- sub("Mag", "Magnitude", newVariables)
 
+   # This regular expression is a program in itself.
+   # Basically, extract the substring "-mean()", delete it, and prepend "mean" to the feature name
+   newVariables <- sub("([a-zA-Z0-9]*)-mean\\(\\)(-*[a-zA-Z0-9]*)", "mean\\1\\2", newVariables)
+   # Basically, extract the substring "-std()", delete it, and prepend "StandardDeviation. to the feature name
+   newVariables <- sub("([a-zA-Z0-9]*)-std\\(\\)(-*[a-zA-Z0-9]*)", "standardDeviation\\1\\2", newVariables)
+
+   # Remove -'s
+   newVariables <- sub("-", "", newVariables)
+
+   # relabel
+   labeledActivities<- activities
+   names(labeledActivities) <- newVariables
+
+   # melt (first three columns are Subject, Activity, Set)
+   tidyDatasetOne <- melt(labeledActivities, id.vars=1:3)
+   
+   # cache the work so far
+   save(tidyDatasetOne, file=tidyDatasetOneFileName)
+}
+
+# output of fifth requirement goes here
+tidyDatasetTwoFileName <- file.path(tidyDataDirectory, "tidyDatasetTwo.Rda")
+
+# Requirement 5
+# Check to see if cached raw data exists. If so, we're done, otherwise compute it
+if (!getTidyData("tidyDatasetTwo.Rda")) {
+   tidyDatasetTwo <- tidyDatasetOne
+   
+    # get rid of Set factor
+   tidyDatasetTwo$Set <- NULL
+
+   # find mean
+#   tidyDatasetTwo <- group_by(tidyDatasetTwo, Subject, Activity,variable) %>% summarize(mean=mean(value)) %>% arrange(Subject, Activity, variable)
+   tidyDatasetTwo <- group_by(tidyDatasetTwo, Subject, Activity,variable) %>% summarize(mean=mean(value))
+   # cache the work so far
+   save(tidyDatasetTwo, file=tidyDatasetTwoFileName)
+}
+
+# output for uploading 
+uploadFile <- file.path(".", "tidy.txt")
+
+# Write out tidy.txt for upload to Coursera
+write.table(tidyDatasetTwo, uploadFile, sep=",", row.names=FALSE, quote=FALSE)
 
